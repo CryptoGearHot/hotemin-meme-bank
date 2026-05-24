@@ -273,13 +273,13 @@ export default function Home() {
                   <form id="upload" onSubmit={handleSubmit} className="space-y-4">
                     <label className="block">
                       <span className="mb-2 block text-sm font-black">
-                        Nama pengirim
+                        Creator Name
                       </span>
                       <input
                         value={senderName}
                         onChange={(event) => setSenderName(event.target.value)}
                         maxLength={60}
-                        placeholder="Contoh: Nop"
+                        placeholder="Example: Gear"
                         className="w-full rounded-2xl border border-[#102033]/10 bg-white/85 px-4 py-3 font-semibold outline-none transition focus:border-[#FF7A1A] focus:ring-4 focus:ring-[#FF7A1A]/15"
                       />
                     </label>
@@ -331,7 +331,7 @@ export default function Home() {
                       ) : (
                         <div className="py-8">
                           <UploadCloud className="mx-auto mb-3 h-11 w-11 text-[#1ECBE1]" />
-                          <p className="font-black">Klik atau drag gambar ke sini</p>
+                          <p className="font-black">Click or drag your image here</p>
                           <p className="mt-1 text-sm font-semibold text-[#102033]/55">
                             PNG, JPG, WEBP, GIF. Max 10MB.
                           </p>
