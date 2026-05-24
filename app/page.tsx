@@ -1,7 +1,24 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Download, ImagePlus, Search, Share2, Sparkles, UploadCloud } from "lucide-react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ImagePlus,
+  Search,
+  Share2,
+  Sparkles,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 type Meme = {
@@ -14,6 +31,7 @@ type Meme = {
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 function getSafeFileName(file: File) {
   const extension = file.name.split(".").pop()?.toLowerCase() || "png";
@@ -35,13 +53,15 @@ function formatDate(date: string) {
 
 export default function Home() {
   const [senderName, setSenderName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [memes, setMemes] = useState<Meme[]>([]);
   const [query, setQuery] = useState("");
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [status, setStatus] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const filteredMemes = useMemo(() => {
@@ -56,21 +76,46 @@ export default function Home() {
     );
   }, [memes, query]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredMemes.length / pageSize));
+
+  const paginatedMemes = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+
+    return filteredMemes.slice(start, end);
+  }, [filteredMemes, currentPage, pageSize]);
+
+  const showingStart =
+    filteredMemes.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const showingEnd = Math.min(currentPage * pageSize, filteredMemes.length);
+
   useEffect(() => {
     loadMemes();
   }, []);
 
   useEffect(() => {
-    if (!file) {
-      setPreviewUrl("");
+    setCurrentPage(1);
+  }, [query, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    if (files.length === 0) {
+      setPreviewUrls([]);
       return;
     }
 
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
+    const objectUrls = files.map((file) => URL.createObjectURL(file));
+    setPreviewUrls(objectUrls);
 
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [file]);
+    return () => {
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [files]);
 
   async function loadMemes() {
     const { data, error } = await supabase
@@ -86,27 +131,58 @@ export default function Home() {
     setMemes(data ?? []);
   }
 
-  function chooseFile(nextFile?: File | null) {
-    if (!nextFile) {
+  function chooseFiles(nextFiles?: FileList | File[] | null) {
+    if (!nextFiles) {
       return;
     }
 
-    if (!ACCEPTED_TYPES.includes(nextFile.type)) {
-      setStatus("Only PNG, JPG, WEBP, or GIF images are allowed.");
-      return;
+    const selectedFiles = Array.from(nextFiles);
+    const validFiles: File[] = [];
+    const rejectedFiles: string[] = [];
+
+    selectedFiles.forEach((file) => {
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        rejectedFiles.push(`${file.name} has an unsupported format.`);
+        return;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        rejectedFiles.push(`${file.name} is larger than 10MB.`);
+        return;
+      }
+
+      validFiles.push(file);
+    });
+
+    if (validFiles.length > 0) {
+      setFiles((current) => [...current, ...validFiles]);
     }
 
-    if (nextFile.size > MAX_FILE_SIZE) {
-      setStatus("Image is too large. Maximum size is 10MB.");
-      return;
+    if (rejectedFiles.length > 0) {
+      setStatus(rejectedFiles.join(" "));
+    } else {
+      setStatus("");
     }
-
-    setStatus("");
-    setFile(nextFile);
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    chooseFile(event.target.files?.[0]);
+    chooseFiles(event.target.files);
+  }
+
+  function removeSelectedFile(index: number) {
+    setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index));
+
+    if (inputRef.current && files.length === 1) {
+      inputRef.current.value = "";
+    }
+  }
+
+  function clearSelectedFiles() {
+    setFiles([]);
+
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -114,60 +190,71 @@ export default function Home() {
 
     const cleanName = senderName.trim();
 
-    if (!cleanName || !file) {
-      setStatus("Add your creator name and image first.");
+    if (!cleanName || files.length === 0) {
+      setStatus("Add your creator name and at least one image first.");
       return;
     }
 
     setIsUploading(true);
-    setStatus("Uploading your meme...");
+    setStatus(`Uploading ${files.length} meme${files.length > 1 ? "s" : ""}...`);
 
-    const fileName = getSafeFileName(file);
-    const filePath = `public/${fileName}`;
+    const uploadedMemes: Meme[] = [];
 
-    const { error: uploadError } = await supabase.storage
-      .from("memes")
-      .upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type,
-      });
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      const fileName = getSafeFileName(file);
+      const filePath = `public/${fileName}`;
 
-    if (uploadError) {
-      setStatus(`Upload failed: ${uploadError.message}`);
-      setIsUploading(false);
-      return;
+      setStatus(`Uploading ${index + 1} of ${files.length}: ${file.name}`);
+
+      const { error: uploadError } = await supabase.storage
+        .from("memes")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        setStatus(`Upload failed for ${file.name}: ${uploadError.message}`);
+        setIsUploading(false);
+        return;
+      }
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("memes").getPublicUrl(filePath);
+
+      const { data, error: insertError } = await supabase
+        .from("memes")
+        .insert({
+          sender_name: cleanName,
+          image_url: publicUrl,
+          file_path: filePath,
+        })
+        .select("id, sender_name, image_url, file_path, created_at")
+        .single();
+
+      if (insertError) {
+        setStatus(
+          `Image uploaded, but failed to add ${file.name} to the gallery: ${insertError.message}`
+        );
+        setIsUploading(false);
+        return;
+      }
+
+      if (data) {
+        uploadedMemes.push(data);
+      }
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("memes").getPublicUrl(filePath);
-
-    const { data, error: insertError } = await supabase
-      .from("memes")
-      .insert({
-        sender_name: cleanName,
-        image_url: publicUrl,
-        file_path: filePath,
-      })
-      .select("id, sender_name, image_url, file_path, created_at")
-      .single();
-
-    if (insertError) {
-      setStatus(`Image uploaded, but failed to add it to the gallery: ${insertError.message}`);
-      setIsUploading(false);
-      return;
-    }
-
-    setMemes((current) => (data ? [data, ...current] : current));
+    setMemes((current) => [...uploadedMemes, ...current]);
     setSenderName("");
-    setFile(null);
-
-    if (inputRef.current) {
-      inputRef.current.value = "";
-    }
-
-    setStatus("Meme uploaded. The timeline is now hotter.");
+    clearSelectedFiles();
+    setCurrentPage(1);
+    setStatus(
+      `${uploadedMemes.length} meme${uploadedMemes.length > 1 ? "s" : ""} uploaded. The timeline is now hotter.`
+    );
     setIsUploading(false);
   }
 
@@ -198,6 +285,14 @@ export default function Home() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  function goToPreviousPage() {
+    setCurrentPage((page) => Math.max(1, page - 1));
+  }
+
+  function goToNextPage() {
+    setCurrentPage((page) => Math.min(totalPages, page + 1));
   }
 
   return (
@@ -243,7 +338,7 @@ export default function Home() {
                   The meme bank for the hottest timeline raid.
                 </h2>
                 <p className="max-w-2xl text-lg leading-8 text-[#102033]/75">
-                  Drop your $HOTEMIN meme with your creator name. No login. No
+                  Drop your $HOTEMIN memes with your creator name. No login. No
                   gate. Just summer-grade content ready to download and spread.
                 </p>
               </div>
@@ -302,7 +397,7 @@ export default function Home() {
                       onDrop={(event) => {
                         event.preventDefault();
                         setIsDragging(false);
-                        chooseFile(event.dataTransfer.files?.[0]);
+                        chooseFiles(event.dataTransfer.files);
                       }}
                       className={`cursor-pointer rounded-3xl border-2 border-dashed p-5 text-center transition ${
                         isDragging
@@ -314,27 +409,63 @@ export default function Home() {
                         ref={inputRef}
                         type="file"
                         accept={ACCEPTED_TYPES.join(",")}
+                        multiple
                         className="hidden"
                         onChange={handleFileChange}
                       />
 
-                      {previewUrl ? (
-                        <div className="space-y-3">
-                          <img
-                            src={previewUrl}
-                            alt="Selected meme preview"
-                            className="mx-auto max-h-72 rounded-2xl object-contain shadow-lg"
-                          />
-                          <p className="break-all text-sm font-bold text-[#102033]/65">
-                            {file?.name}
-                          </p>
+                      {files.length > 0 ? (
+                        <div className="space-y-4">
+                          <div className="grid max-h-72 grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3">
+                            {files.map((file, index) => (
+                              <div
+                                key={`${file.name}-${index}`}
+                                className="relative overflow-hidden rounded-2xl bg-white shadow-sm"
+                              >
+                                <img
+                                  src={previewUrls[index]}
+                                  alt={`Selected meme ${index + 1}`}
+                                  className="h-28 w-full object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    removeSelectedFile(index);
+                                  }}
+                                  className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-[#102033]/85 text-white"
+                                  aria-label="Remove selected image"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-sm font-bold text-[#102033]/65">
+                              {files.length} image{files.length > 1 ? "s" : ""} selected
+                            </p>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                clearSelectedFiles();
+                              }}
+                              className="rounded-full bg-[#FF4F5E]/12 px-4 py-2 text-sm font-black text-[#FF4F5E] transition hover:bg-[#FF4F5E] hover:text-white"
+                            >
+                              Clear selection
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div className="py-8">
                           <UploadCloud className="mx-auto mb-3 h-11 w-11 text-[#1ECBE1]" />
-                          <p className="font-black">Click or drag your image here</p>
+                          <p className="font-black">
+                            Click or drag your images here
+                          </p>
                           <p className="mt-1 text-sm font-semibold text-[#102033]/55">
-                            PNG, JPG, WEBP, GIF. Max 10MB.
+                            PNG, JPG, WEBP, GIF. Max 10MB each.
                           </p>
                         </div>
                       )}
@@ -342,10 +473,12 @@ export default function Home() {
 
                     <button
                       type="submit"
-                      disabled={isUploading || !senderName.trim() || !file}
+                      disabled={isUploading || !senderName.trim() || files.length === 0}
                       className="w-full rounded-2xl bg-[#FF7A1A] px-5 py-4 text-base font-black text-white shadow-xl shadow-[#FF7A1A]/25 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:bg-[#102033]/25 disabled:shadow-none"
                     >
-                      {isUploading ? "Uploading..." : "Submit Meme"}
+                      {isUploading
+                        ? "Uploading..."
+                        : `Submit ${files.length > 1 ? `${files.length} Memes` : "Meme"}`}
                     </button>
 
                     {status ? (
@@ -362,23 +495,73 @@ export default function Home() {
       </section>
 
       <section className="relative mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-4 rounded-3xl border border-white/70 bg-white/45 p-4 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.25em] text-[#1ECBE1]">
-              Gallery
-            </p>
-            <h2 className="text-3xl font-black">Community uploads</h2>
+        <div className="mb-6 flex flex-col gap-4 rounded-3xl border border-white/70 bg-white/45 p-4 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.25em] text-[#1ECBE1]">
+                Gallery
+              </p>
+              <h2 className="text-3xl font-black">Community uploads</h2>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <label className="relative block w-full sm:w-80">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#102033]/45" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search creator name..."
+                  className="w-full rounded-2xl border border-[#102033]/10 bg-white/80 py-3 pl-12 pr-4 font-semibold outline-none transition focus:border-[#1ECBE1] focus:ring-4 focus:ring-[#1ECBE1]/15"
+                />
+              </label>
+
+              <label className="flex items-center gap-2 rounded-2xl border border-[#102033]/10 bg-white/80 px-4 py-3 font-bold">
+                <span className="text-sm text-[#102033]/60">Show</span>
+                <select
+                  value={pageSize}
+                  onChange={(event) => setPageSize(Number(event.target.value))}
+                  className="bg-transparent font-black outline-none"
+                >
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-sm text-[#102033]/60">per page</span>
+              </label>
+            </div>
           </div>
 
-          <label className="relative block w-full sm:max-w-sm">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#102033]/45" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search creator name..."
-              className="w-full rounded-2xl border border-[#102033]/10 bg-white/80 py-3 pl-12 pr-4 font-semibold outline-none transition focus:border-[#1ECBE1] focus:ring-4 focus:ring-[#1ECBE1]/15"
-            />
-          </label>
+          <div className="flex flex-col gap-3 border-t border-white/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-bold text-[#102033]/65">
+              Showing {showingStart}-{showingEnd} of {filteredMemes.length} memes
+            </p>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={goToPreviousPage}
+                disabled={currentPage === 1}
+                className="inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-black shadow-sm transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </button>
+
+              <span className="rounded-full bg-[#102033] px-4 py-2 text-sm font-black text-white">
+                Page {currentPage} of {totalPages}
+              </span>
+
+              <button
+                onClick={goToNextPage}
+                disabled={currentPage === totalPages}
+                className="inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-black shadow-sm transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {memes.length === 0 ? (
@@ -393,7 +576,7 @@ export default function Home() {
           />
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filteredMemes.map((meme) => (
+            {paginatedMemes.map((meme) => (
               <article
                 key={meme.id}
                 className="group overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/60 shadow-sm backdrop-blur transition hover:-translate-y-1 hover:shadow-2xl hover:shadow-[#102033]/10"
