@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Download, ImagePlus, Search, Share2, Sparkles, UploadCloud } from "lucide-react";
@@ -115,7 +115,7 @@ export default function Home() {
     const cleanName = senderName.trim();
 
     if (!cleanName || !file) {
-      setStatus("Add sender name and image first.");
+      setStatus("Add your creator name and image first.");
       return;
     }
 
@@ -154,7 +154,7 @@ export default function Home() {
       .single();
 
     if (insertError) {
-      setStatus(`Saved image, but failed to add it to gallery: ${insertError.message}`);
+      setStatus(`Image uploaded, but failed to add it to the gallery: ${insertError.message}`);
       setIsUploading(false);
       return;
     }
@@ -162,6 +162,7 @@ export default function Home() {
     setMemes((current) => (data ? [data, ...current] : current));
     setSenderName("");
     setFile(null);
+
     if (inputRef.current) {
       inputRef.current.value = "";
     }
@@ -173,13 +174,13 @@ export default function Home() {
   async function handleShare(meme: Meme) {
     const text = `Fresh $HOTEMIN meme by ${meme.sender_name}`;
 
-if (navigator.share) {
-  try {
-    await navigator.share({
-      title: "Hotemin Meme Bank",
-      text,
-      url: meme.image_url,
-    });
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Hotemin Meme Bank",
+          text,
+          url: meme.image_url,
+        });
       } catch {
         return;
       }
@@ -273,7 +274,7 @@ if (navigator.share) {
                   <form id="upload" onSubmit={handleSubmit} className="space-y-4">
                     <label className="block">
                       <span className="mb-2 block text-sm font-black">
-                        Creator Name
+                        Creator name
                       </span>
                       <input
                         value={senderName}
@@ -382,13 +383,13 @@ if (navigator.share) {
 
         {memes.length === 0 ? (
           <EmptyState
-            title="Belum ada meme masuk."
-            description="Upload meme pertama dan mulai isi bank-nya."
+            title="No memes uploaded yet."
+            description="Upload the first meme and start filling the bank."
           />
         ) : filteredMemes.length === 0 ? (
           <EmptyState
-            title="Tidak ada hasil."
-            description="Coba cari nama pengirim lain."
+            title="No results found."
+            description="Try searching another creator name."
           />
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
