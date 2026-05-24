@@ -171,20 +171,20 @@ export default function Home() {
   }
 
   async function handleShare(meme: Meme) {
-    const text = `Fresh $HOTEMIN meme by ${meme.sender_name}: ${meme.image_url}`;
+    const text = `Fresh $HOTEMIN meme by ${meme.sender_name}`;
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: "Hotemin Meme Bank",
-          text,
-          url: meme.image_url,
-        });
+if (navigator.share) {
+  try {
+    await navigator.share({
+      title: "Hotemin Meme Bank",
+      text,
+      url: meme.image_url,
+    });
       } catch {
         return;
       }
     } else {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(`${text}: ${meme.image_url}`);
       setStatus("Share text copied.");
     }
   }
