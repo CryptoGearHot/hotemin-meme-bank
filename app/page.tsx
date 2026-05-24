@@ -33,6 +33,7 @@ type Meme = {
 type SortMode = "newest" | "most_liked";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILES_PER_UPLOAD = 5;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const VISITOR_ID_KEY = "hotemin-meme-bank-visitor-id";
@@ -185,38 +186,55 @@ export default function Home() {
   }
 
   function chooseFiles(nextFiles?: FileList | File[] | null) {
-    if (!nextFiles) {
+  if (!nextFiles) {
+    return;
+  }
+
+  const selectedFiles = Array.from(nextFiles);
+  const remainingSlots = MAX_FILES_PER_UPLOAD - files.length;
+
+  if (remainingSlots <= 0) {
+    setStatus(`You can upload up to ${MAX_FILES_PER_UPLOAD} images at once.`);
+    return;
+  }
+
+  const validFiles: File[] = [];
+  const rejectedFiles: string[] = [];
+  let limitReached = false;
+
+  selectedFiles.forEach((file) => {
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      rejectedFiles.push(`${file.name} has an unsupported format.`);
       return;
     }
 
-    const selectedFiles = Array.from(nextFiles);
-    const validFiles: File[] = [];
-    const rejectedFiles: string[] = [];
-
-    selectedFiles.forEach((file) => {
-      if (!ACCEPTED_TYPES.includes(file.type)) {
-        rejectedFiles.push(`${file.name} has an unsupported format.`);
-        return;
-      }
-
-      if (file.size > MAX_FILE_SIZE) {
-        rejectedFiles.push(`${file.name} is larger than 10MB.`);
-        return;
-      }
-
-      validFiles.push(file);
-    });
-
-    if (validFiles.length > 0) {
-      setFiles((current) => [...current, ...validFiles]);
+    if (file.size > MAX_FILE_SIZE) {
+      rejectedFiles.push(`${file.name} is larger than 10MB.`);
+      return;
     }
 
-    if (rejectedFiles.length > 0) {
-      setStatus(rejectedFiles.join(" "));
-    } else {
-      setStatus("");
+    if (validFiles.length >= remainingSlots) {
+      limitReached = true;
+      return;
     }
+
+    validFiles.push(file);
+  });
+
+  if (validFiles.length > 0) {
+    setFiles((current) => [...current, ...validFiles]);
   }
+
+  if (limitReached) {
+    rejectedFiles.push(`Only ${MAX_FILES_PER_UPLOAD} images are allowed per upload.`);
+  }
+
+  if (rejectedFiles.length > 0) {
+    setStatus(rejectedFiles.join(" "));
+  } else {
+    setStatus("");
+  }
+}
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     chooseFiles(event.target.files);
@@ -568,7 +586,7 @@ ${meme.image_url}`;
                             Click or drag your images here
                           </p>
                           <p className="mt-1 text-sm font-semibold text-[#102033]/55">
-                            PNG, JPG, WEBP, GIF. Max 10MB each.
+                            PNG, JPG, WEBP, GIF. Max 10MB each. Up to 5 images per upload
                           </p>
                         </div>
                       )}
@@ -581,6 +599,7 @@ ${meme.image_url}`;
 
                       <ul className="space-y-2 text-sm font-semibold leading-6 text-[#102033]/70">
                         <li>• Upload only $HOTEMIN-related memes or artwork.</li>
+                        <li>• Upload up to 5 images at once.</li>
                         <li>• No spam, NSFW, hate content, or impersonation.</li>
                         <li>• Use your real creator name or community handle.</li>
                         <li>• By uploading, you allow the community to download and share your meme.</li>
