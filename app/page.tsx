@@ -470,6 +470,18 @@ export default function Home() {
                         </div>
                       )}
                     </div>
+                    <div className="rounded-3xl border border-[#FF7A1A]/20 bg-white/70 p-4 text-left shadow-sm">
+  <p className="mb-3 text-sm font-black uppercase tracking-[0.22em] text-[#FF4F5E]">
+    Upload Rules
+  </p>
+
+  <ul className="space-y-2 text-sm font-semibold leading-6 text-[#102033]/70">
+    <li>• Upload only $HOTEMIN-related memes or artwork.</li>
+    <li>• No spam, NSFW, hate content, or impersonation.</li>
+    <li>• Use your real creator name or community handle.</li>
+    <li>• By uploading, you allow the community to download and share your meme.</li>
+  </ul>
+  </div>
 
                     <button
                       type="submit"
