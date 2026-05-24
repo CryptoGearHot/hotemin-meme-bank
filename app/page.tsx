@@ -27,11 +27,15 @@ type Meme = {
   image_url: string;
   file_path: string;
   created_at: string;
+  likes_count: number;
 };
+
+type SortMode = "newest" | "most_liked";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
+const VISITOR_ID_KEY = "hotemin-meme-bank-visitor-id";
 
 function getSafeFileName(file: File) {
   const extension = file.name.split(".").pop()?.toLowerCase() || "png";
@@ -41,6 +45,22 @@ function getSafeFileName(file: File) {
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   return `${randomPart}.${extension}`;
+}
+
+function getOrCreateVisitorId() {
+  const existingId = localStorage.getItem(VISITOR_ID_KEY);
+
+  if (existingId) {
+    return existingId;
+  }
+
+  const newId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  localStorage.setItem(VISITOR_ID_KEY, newId);
+  return newId;
 }
 
 function formatDate(date: string) {
@@ -55,6 +75,8 @@ export default function Home() {
   const [senderName, setSenderName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [memes, setMemes] = useState<Meme[]>([]);
+  const [likedMemeIds, setLikedMemeIds] = useState<Set<string>>(new Set());
+  const [visitorId, setVisitorId] = useState("");
   const [query, setQuery] = useState("");
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -62,40 +84,57 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const filteredMemes = useMemo(() => {
+  const visibleMemes = useMemo(() => {
     const cleanQuery = query.trim().toLowerCase();
 
-    if (!cleanQuery) {
-      return memes;
-    }
+    const filtered = cleanQuery
+      ? memes.filter((meme) =>
+          meme.sender_name.toLowerCase().includes(cleanQuery)
+        )
+      : memes;
 
-    return memes.filter((meme) =>
-      meme.sender_name.toLowerCase().includes(cleanQuery)
-    );
-  }, [memes, query]);
+    return [...filtered].sort((a, b) => {
+      if (sortMode === "most_liked") {
+        const likesDifference = (b.likes_count ?? 0) - (a.likes_count ?? 0);
 
-  const totalPages = Math.max(1, Math.ceil(filteredMemes.length / pageSize));
+        if (likesDifference !== 0) {
+          return likesDifference;
+        }
+      }
+
+      return (
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    });
+  }, [memes, query, sortMode]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleMemes.length / pageSize));
 
   const paginatedMemes = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     const end = start + pageSize;
 
-    return filteredMemes.slice(start, end);
-  }, [filteredMemes, currentPage, pageSize]);
+    return visibleMemes.slice(start, end);
+  }, [visibleMemes, currentPage, pageSize]);
 
   const showingStart =
-    filteredMemes.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-  const showingEnd = Math.min(currentPage * pageSize, filteredMemes.length);
+    visibleMemes.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const showingEnd = Math.min(currentPage * pageSize, visibleMemes.length);
 
   useEffect(() => {
+    const currentVisitorId = getOrCreateVisitorId();
+    setVisitorId(currentVisitorId);
+
     loadMemes();
+    loadLikedMemes(currentVisitorId);
   }, []);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, pageSize]);
+  }, [query, pageSize, sortMode]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -120,7 +159,7 @@ export default function Home() {
   async function loadMemes() {
     const { data, error } = await supabase
       .from("memes")
-      .select("id, sender_name, image_url, file_path, created_at")
+      .select("id, sender_name, image_url, file_path, created_at, likes_count")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -128,7 +167,21 @@ export default function Home() {
       return;
     }
 
-    setMemes(data ?? []);
+    setMemes((data ?? []) as Meme[]);
+  }
+
+  async function loadLikedMemes(currentVisitorId: string) {
+    const { data, error } = await supabase.rpc("get_liked_memes", {
+      p_visitor_id: currentVisitorId,
+    });
+
+    if (error) {
+      setStatus(`Could not load your likes: ${error.message}`);
+      return;
+    }
+
+    const rows = (data ?? []) as { meme_id: string }[];
+    setLikedMemeIds(new Set(rows.map((row) => row.meme_id)));
   }
 
   function chooseFiles(nextFiles?: FileList | File[] | null) {
@@ -232,7 +285,7 @@ export default function Home() {
           image_url: publicUrl,
           file_path: filePath,
         })
-        .select("id, sender_name, image_url, file_path, created_at")
+        .select("id, sender_name, image_url, file_path, created_at, likes_count")
         .single();
 
       if (insertError) {
@@ -244,7 +297,7 @@ export default function Home() {
       }
 
       if (data) {
-        uploadedMemes.push(data);
+        uploadedMemes.push(data as Meme);
       }
     }
 
@@ -258,9 +311,50 @@ export default function Home() {
     setIsUploading(false);
   }
 
+  async function handleLike(meme: Meme) {
+    if (!visitorId || likedMemeIds.has(meme.id)) {
+      return;
+    }
+
+    const { data, error } = await supabase.rpc("like_meme", {
+      p_meme_id: meme.id,
+      p_visitor_id: visitorId,
+    });
+
+    if (error) {
+      setStatus(`Could not like meme: ${error.message}`);
+      return;
+    }
+
+    const result = (data?.[0] ?? null) as
+      | { new_likes_count: number; new_like: boolean }
+      | null;
+
+    if (!result) {
+      setStatus("Could not update like count.");
+      return;
+    }
+
+    setMemes((current) =>
+      current.map((currentMeme) =>
+        currentMeme.id === meme.id
+          ? { ...currentMeme, likes_count: result.new_likes_count }
+          : currentMeme
+      )
+    );
+
+    setLikedMemeIds((current) => {
+      const next = new Set(current);
+      next.add(meme.id);
+      return next;
+    });
+
+    setStatus(result.new_like ? "Meme liked." : "You already liked this meme.");
+  }
+
   async function handleShare(meme: Meme) {
-  const websiteUrl = "https://hotemin-meme-bank.vercel.app";
-  const text = `Fresh $HOTEMIN meme by ${meme.sender_name}
+    const websiteUrl = "https://hotemin-meme-bank.vercel.app";
+    const text = `Fresh $HOTEMIN meme by ${meme.sender_name}
 
 Grab more memes at Hotemin Meme Bank:
 ${websiteUrl}
@@ -268,20 +362,20 @@ ${websiteUrl}
 Image:
 ${meme.image_url}`;
 
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: "Hotemin Meme Bank",
-        text,
-      });
-    } catch {
-      return;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Hotemin Meme Bank",
+          text,
+        });
+      } catch {
+        return;
+      }
+    } else {
+      await navigator.clipboard.writeText(text);
+      setStatus("Share text copied.");
     }
-  } else {
-    await navigator.clipboard.writeText(text);
-    setStatus("Share text copied.");
   }
-}
 
   function handleDownload(meme: Meme) {
     const link = document.createElement("a");
@@ -355,7 +449,10 @@ ${meme.image_url}`;
                   value={new Set(memes.map((meme) => meme.sender_name.toLowerCase())).size.toString()}
                   label="Creators"
                 />
-                <StatCard value="Free" label="No login" />
+                <StatCard
+                  value={memes.reduce((total, meme) => total + (meme.likes_count ?? 0), 0).toString()}
+                  label="Total likes"
+                />
               </div>
             </div>
 
@@ -476,18 +573,19 @@ ${meme.image_url}`;
                         </div>
                       )}
                     </div>
-                    <div className="rounded-3xl border border-[#FF7A1A]/20 bg-white/70 p-4 text-left shadow-sm">
-  <p className="mb-3 text-sm font-black uppercase tracking-[0.22em] text-[#FF4F5E]">
-    Upload Rules
-  </p>
 
-  <ul className="space-y-2 text-sm font-semibold leading-6 text-[#102033]/70">
-    <li>• Upload only $HOTEMIN-related memes or artwork.</li>
-    <li>• No spam, NSFW, hate content, or impersonation.</li>
-    <li>• Use your real creator name or community handle.</li>
-    <li>• By uploading, you allow the community to download and share your meme.</li>
-  </ul>
-  </div>
+                    <div className="rounded-3xl border border-[#FF7A1A]/20 bg-white/70 p-4 text-left shadow-sm">
+                      <p className="mb-3 text-sm font-black uppercase tracking-[0.22em] text-[#FF4F5E]">
+                        Upload Rules
+                      </p>
+
+                      <ul className="space-y-2 text-sm font-semibold leading-6 text-[#102033]/70">
+                        <li>• Upload only $HOTEMIN-related memes or artwork.</li>
+                        <li>• No spam, NSFW, hate content, or impersonation.</li>
+                        <li>• Use your real creator name or community handle.</li>
+                        <li>• By uploading, you allow the community to download and share your meme.</li>
+                      </ul>
+                    </div>
 
                     <button
                       type="submit"
@@ -534,6 +632,20 @@ ${meme.image_url}`;
               </label>
 
               <label className="flex items-center gap-2 rounded-2xl border border-[#102033]/10 bg-white/80 px-4 py-3 font-bold">
+                <span className="text-sm text-[#102033]/60">Sort by</span>
+                <select
+                  value={sortMode}
+                  onChange={(event) =>
+                    setSortMode(event.target.value as SortMode)
+                  }
+                  className="bg-transparent font-black outline-none"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="most_liked">Most liked</option>
+                </select>
+              </label>
+
+              <label className="flex items-center gap-2 rounded-2xl border border-[#102033]/10 bg-white/80 px-4 py-3 font-bold">
                 <span className="text-sm text-[#102033]/60">Show</span>
                 <select
                   value={pageSize}
@@ -553,7 +665,7 @@ ${meme.image_url}`;
 
           <div className="flex flex-col gap-3 border-t border-white/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-bold text-[#102033]/65">
-              Showing {showingStart}-{showingEnd} of {filteredMemes.length} memes
+              Showing {showingStart}-{showingEnd} of {visibleMemes.length} memes
             </p>
 
             <div className="flex items-center gap-2">
@@ -587,105 +699,124 @@ ${meme.image_url}`;
             title="No memes uploaded yet."
             description="Upload the first meme and start filling the bank."
           />
-        ) : filteredMemes.length === 0 ? (
+        ) : visibleMemes.length === 0 ? (
           <EmptyState
             title="No results found."
             description="Try searching another creator name."
           />
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {paginatedMemes.map((meme) => (
-              <article
-                key={meme.id}
-                className="group overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/60 shadow-sm backdrop-blur transition hover:-translate-y-1 hover:shadow-2xl hover:shadow-[#102033]/10"
-              >
-                <a
-                  href={meme.image_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block aspect-square overflow-hidden bg-[#102033]/5"
+            {paginatedMemes.map((meme) => {
+              const isLiked = likedMemeIds.has(meme.id);
+
+              return (
+                <article
+                  key={meme.id}
+                  className="group overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/60 shadow-sm backdrop-blur transition hover:-translate-y-1 hover:shadow-2xl hover:shadow-[#102033]/10"
                 >
-                  <img
-                    src={meme.image_url}
-                    alt={`$HOTEMIN meme by ${meme.sender_name}`}
-                    className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                    loading="lazy"
-                  />
-                </a>
+                  <a
+                    href={meme.image_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block aspect-square overflow-hidden bg-[#102033]/5"
+                  >
+                    <img
+                      src={meme.image_url}
+                      alt={`$HOTEMIN meme by ${meme.sender_name}`}
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                  </a>
 
-                <div className="space-y-4 p-4">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-[#FF4F5E]">
-                      Uploaded by
-                    </p>
-                    <h3 className="truncate text-xl font-black">
-                      {meme.sender_name}
-                    </h3>
-                    <p className="mt-1 text-sm font-semibold text-[#102033]/55">
-                      {formatDate(meme.created_at)}
-                    </p>
+                  <div className="space-y-4 p-4">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#FF4F5E]">
+                        Uploaded by
+                      </p>
+                      <h3 className="truncate text-xl font-black">
+                        {meme.sender_name}
+                      </h3>
+                      <p className="mt-1 text-sm font-semibold text-[#102033]/55">
+                        {formatDate(meme.created_at)}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => handleDownload(meme)}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#102033] px-3 py-3 text-sm font-black text-white transition hover:scale-[1.02]"
+                      >
+                        <Download className="h-4 w-4" />
+                        Grab
+                      </button>
+
+                      <button
+                        onClick={() => handleShare(meme)}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#1ECBE1] px-3 py-3 text-sm font-black text-white transition hover:scale-[1.02]"
+                      >
+                        <Share2 className="h-4 w-4" />
+                        Share
+                      </button>
+
+                      <button
+                        onClick={() => handleLike(meme)}
+                        disabled={isLiked}
+                        className={`inline-flex items-center justify-center gap-1 rounded-2xl px-3 py-3 text-sm font-black transition hover:scale-[1.02] disabled:cursor-not-allowed ${
+                          isLiked
+                            ? "bg-[#FF4F5E] text-white shadow-lg shadow-[#FF4F5E]/20"
+                            : "bg-white text-[#102033] shadow-sm hover:bg-[#FFE66D]"
+                        }`}
+                        aria-label={isLiked ? "Already liked" : "Like meme"}
+                      >
+                        <span>❤️‍🔥</span>
+                        <span>{meme.likes_count ?? 0}</span>
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => handleDownload(meme)}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#102033] px-3 py-3 text-sm font-black text-white transition hover:scale-[1.02]"
-                    >
-                      <Download className="h-4 w-4" />
-                      Grab
-                    </button>
-
-                    <button
-                      onClick={() => handleShare(meme)}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#1ECBE1] px-3 py-3 text-sm font-black text-white transition hover:scale-[1.02]"
-                    >
-                      <Share2 className="h-4 w-4" />
-                      Share
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
+
       <footer className="relative mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8">
-  <div className="rounded-[2rem] border border-white/70 bg-white/50 p-6 shadow-sm backdrop-blur">
-    <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-      <div>
-        <p className="text-sm font-black uppercase tracking-[0.25em] text-[#FF4F5E]">
-          Hotemin Meme Bank
-        </p>
-        <h3 className="mt-2 text-2xl font-black">
-          Built for the $HOTEMIN community.
-        </h3>
-        <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[#102033]/65">
-          Upload, grab, and spread community-made memes across the timeline.
-        </p>
-      </div>
+        <div className="rounded-[2rem] border border-white/70 bg-white/50 p-6 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.25em] text-[#FF4F5E]">
+                Hotemin Meme Bank
+              </p>
+              <h3 className="mt-2 text-2xl font-black">
+                Built for the $HOTEMIN community.
+              </h3>
+              <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[#102033]/65">
+                Upload, grab, and spread community-made memes across the timeline.
+              </p>
+            </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <a
-          href="https://x.com/HotEminSummer"
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-full bg-[#102033] px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-[#102033]/15 transition hover:scale-[1.02]"
-        >
-          Follow on X
-        </a>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <a
+                href="https://x.com/HotEminSummer"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full bg-[#102033] px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-[#102033]/15 transition hover:scale-[1.02]"
+              >
+                Follow on X
+              </a>
 
-        <a
-          href="https://hotemin-meme-bank.vercel.app"
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-full bg-[#FF7A1A] px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-[#FF7A1A]/20 transition hover:scale-[1.02]"
-        >
-          Open Meme Bank
-        </a>
-      </div>
-    </div>
-  </div>
-</footer>
+              <a
+                href="https://hotemin-meme-bank.vercel.app"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full bg-[#FF7A1A] px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-[#FF7A1A]/20 transition hover:scale-[1.02]"
+              >
+                Open Meme Bank
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }
