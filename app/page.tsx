@@ -423,9 +423,13 @@ ${meme.image_url}`;
         <div className="relative mx-auto max-w-7xl">
           <nav className="mb-10 flex items-center justify-between rounded-3xl border border-white/70 bg-white/45 px-4 py-3 shadow-sm backdrop-blur">
             <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#FF7A1A] shadow-xl shadow-[#FF7A1A]/25">
-                <Sparkles className="h-6 w-6 text-white" />
-              </div>
+              <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-white p-1 shadow-xl shadow-[#FF7A1A]/25">
+  <img
+    src="/hotemin-logo.png"
+    alt="Hotemin Meme Bank logo"
+    className="h-full w-full object-cover"
+  />
+</div>
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.28em] text-[#FF4F5E]">
                   $HOTEMIN
