@@ -649,6 +649,43 @@ ${meme.image_url}`;
           </div>
         )}
       </section>
+      <footer className="relative mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8">
+  <div className="rounded-[2rem] border border-white/70 bg-white/50 p-6 shadow-sm backdrop-blur">
+    <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+      <div>
+        <p className="text-sm font-black uppercase tracking-[0.25em] text-[#FF4F5E]">
+          Hotemin Meme Bank
+        </p>
+        <h3 className="mt-2 text-2xl font-black">
+          Built for the $HOTEMIN community.
+        </h3>
+        <p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-[#102033]/65">
+          Upload, grab, and spread community-made memes across the timeline.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <a
+          href="https://x.com/HotEminSummer"
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-full bg-[#102033] px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-[#102033]/15 transition hover:scale-[1.02]"
+        >
+          Follow on X
+        </a>
+
+        <a
+          href="https://hotemin-meme-bank.vercel.app"
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-full bg-[#FF7A1A] px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-[#FF7A1A]/20 transition hover:scale-[1.02]"
+        >
+          Open Meme Bank
+        </a>
+      </div>
+    </div>
+  </div>
+</footer>
     </main>
   );
 }
