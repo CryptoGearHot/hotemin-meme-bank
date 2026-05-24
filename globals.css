@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --sand: #fff3d6;
+  --orange: #ff7a1a;
+  --coral: #ff4f5e;
+  --cyan: #1ecbe1;
+  --lemon: #ffe66d;
+  --navy: #102033;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--sand);
+  color: var(--navy);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: var(--lemon);
+  color: var(--navy);
+}

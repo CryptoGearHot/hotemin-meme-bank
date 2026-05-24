@@ -1,0 +1,7 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="34" fill="#FFF3D6"/>
+  <circle cx="39" cy="39" r="25" fill="#FF7A1A"/>
+  <circle cx="88" cy="44" r="22" fill="#1ECBE1"/>
+  <path d="M24 88C43 66 61 102 78 78C93 57 105 77 112 94H17C18 92 20 90 24 88Z" fill="#FF4F5E"/>
+  <text x="64" y="109" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="900" fill="#102033">HOTEMIN</text>
+</svg>
