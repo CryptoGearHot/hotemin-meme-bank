@@ -823,15 +823,6 @@ ${meme.image_url}`;
               >
                 Follow on X
               </a>
-
-              <a
-                href="https://hotemin-meme-bank.vercel.app"
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-full bg-[#FF7A1A] px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-[#FF7A1A]/20 transition hover:scale-[1.02]"
-              >
-                Open Meme Bank
-              </a>
             </div>
           </div>
         </div>
