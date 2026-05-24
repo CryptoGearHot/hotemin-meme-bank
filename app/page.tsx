@@ -259,23 +259,29 @@ export default function Home() {
   }
 
   async function handleShare(meme: Meme) {
-    const text = `Fresh $HOTEMIN meme by ${meme.sender_name}`;
+  const websiteUrl = "https://hotemin-meme-bank.vercel.app";
+  const text = `Fresh $HOTEMIN meme by ${meme.sender_name}
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: "Hotemin Meme Bank",
-          text,
-          url: meme.image_url,
-        });
-      } catch {
-        return;
-      }
-    } else {
-      await navigator.clipboard.writeText(`${text}: ${meme.image_url}`);
-      setStatus("Share text copied.");
+Grab more memes at Hotemin Meme Bank:
+${websiteUrl}
+
+Image:
+${meme.image_url}`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: "Hotemin Meme Bank",
+        text,
+      });
+    } catch {
+      return;
     }
+  } else {
+    await navigator.clipboard.writeText(text);
+    setStatus("Share text copied.");
   }
+}
 
   function handleDownload(meme: Meme) {
     const link = document.createElement("a");
